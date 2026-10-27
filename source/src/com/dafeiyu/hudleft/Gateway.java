@@ -1,7 +1,5 @@
 package com.dafeiyu.hudleft;
 
-import android.util.Log;
-
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -32,7 +30,6 @@ final class Gateway {
     }
 
     static JSONObject get(String path) throws Exception {
-        Log.d("LBG", "GET " + path + " tokenLen=" + token().length());
         HttpURLConnection c = (HttpURLConnection) new URL(BASE + path).openConnection();
         c.setConnectTimeout(2000);
         c.setReadTimeout(3000);
@@ -43,10 +40,8 @@ final class Gateway {
             int n;
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
             String body = new String(out.toByteArray(), StandardCharsets.UTF_8);
-            Log.d("LBG", "OK " + body.substring(0, Math.min(120, body.length())));
             return new JSONObject(body);
         } catch (Exception e) {
-            Log.d("LBG", "ERR " + e);
             throw e;
         } finally {
             c.disconnect();
@@ -69,8 +64,12 @@ final class Gateway {
     }
 
     private static boolean post(JSONObject body) {
+        return post("/api/perm/answer", body);
+    }
+
+    private static boolean post(String path, JSONObject body) {
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(BASE + "/api/perm/answer").openConnection();
+            HttpURLConnection c = (HttpURLConnection) new URL(BASE + path).openConnection();
             c.setRequestMethod("POST");
             c.setDoOutput(true);
             c.setConnectTimeout(2000);

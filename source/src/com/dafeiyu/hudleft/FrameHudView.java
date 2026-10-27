@@ -56,6 +56,7 @@ final class FrameHudView extends View {
     private float downRawX, downRawY, lastRawX, lastRawY, downY;
     private boolean dragging;
     private boolean moved;
+    private boolean armed;          // 手指按下时是否落在胶囊上
     private int pressed = -1;
 
     FrameHudView(Context c, FramePath path, List<Agent> agents) {
@@ -122,6 +123,11 @@ final class FrameHudView extends View {
 
     private float step() {
         return 44 * dp;
+    }
+
+    /** 展开胶囊的总跨度（px）。加号已经去掉，只按模型图标数算，两头各留一点圆头 */
+    float capsuleSpan() {
+        return Math.max(1, agents.size()) * step() + 24 * dp;
     }
 
     private float iconInset() {
@@ -212,8 +218,7 @@ final class FrameHudView extends View {
 
     /** 展开时的胶囊：贴着边框的一条 34dp 药丸，沿路径走，拐角会跟着弯 */
     private void drawCapsule(Canvas c, float a) {
-        int n = agents.size();
-        float span = (n - 1) * step() + 42 * dp;
+        float span = capsuleSpan();
         float s0 = s - span / 2f;
         float s1 = s + span / 2f;
         float thick = 30 * dp;
@@ -256,12 +261,13 @@ final class FrameHudView extends View {
             float y = ev[1] + (float) Math.cos(ang) * iconInset();
             c.save();
             c.scale(0.72f + 0.28f * open, 0.72f + 0.28f * open, x, y);
-            drawAgent(c, agents.get(i), x, y, iconR(), now);
+            // 底边时向内是「上方」，状态字要画在图标上面，不然会压到屏幕边缘
+            drawAgent(c, agents.get(i), x, y, iconR(), now, Math.cos(ang) < -0.5);
             c.restore();
         }
     }
 
-    private void drawAgent(Canvas c, Agent a, float x, float y, float r, long now) {
+    private void drawAgent(Canvas c, Agent a, float x, float y, float r, long now, boolean bottomEdge) {
         if (a.request != null) {
             float rp = redPulse(now);
             paint.setStyle(Paint.Style.FILL);
@@ -318,12 +324,13 @@ final class FrameHudView extends View {
         paint.setColor(0xFFCFC9C2);
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setTypeface(Typeface.DEFAULT);
+        float labelY = bottomEdge ? y - r - 3 * dp : y + r + 10 * dp;
         if (a.label != null) {
             paint.setTextSize(6.6f * dp);
-            c.drawText(a.label, x, y + r + 10 * dp, paint);
+            c.drawText(a.label, x, labelY, paint);
         } else {
             paint.setTextSize(7f * dp);
-            c.drawText(Math.round(a.pct * 100) + "%", x, y + r + 10 * dp, paint);
+            c.drawText(Math.round(a.pct * 100) + "%", x, labelY, paint);
         }
     }
 
@@ -341,7 +348,7 @@ final class FrameHudView extends View {
         Path clip = new Path();
         clip.addCircle(x, y, r - 1.5f * dp, Path.Direction.CW);
         c.clipPath(clip);
-        float sc = r * 0.86f;
+        float sc = r * 0.92f;
         c.drawBitmap(b, null, new RectF(x - sc, y - sc, x + sc, y + sc), paint);
         c.restoreToCount(save);
     }
@@ -349,7 +356,7 @@ final class FrameHudView extends View {
     private void drawBot(Canvas c, float x, float y, float r, int color, long now) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(lerpColor(color, 0xFFFFFFFF, 0.18f));
-        RectF head = new RectF(x - r * 0.82f, y - r * 0.72f, x + r * 0.82f, y + r * 0.82f);
+        RectF head = new RectF(x - r * 0.92f, y - r * 0.82f, x + r * 0.92f, y + r * 0.92f);
         c.drawRoundRect(head, r * 0.5f, r * 0.5f, paint);
         long blink = (now / 380) % 11;
         float open = (blink == 0 || blink == 1) ? 0.12f : 1f;
@@ -393,10 +400,12 @@ final class FrameHudView extends View {
                 lastRawX = downRawX;
                 lastRawY = downRawY;
                 downY = e.getRawY();
+                armed = nearCapsule(e.getRawX(), e.getRawY());
                 pressed = expanded ? iconAt(e.getRawX(), e.getRawY()) : -1;
                 return true;
 
             case MotionEvent.ACTION_MOVE: {
+                if (!armed) return true;
                 if (!expanded) {                      // 竖线状态不能拖，动了就不算点
                     if (Math.hypot(e.getRawX() - downRawX, e.getRawY() - downRawY) > 12 * dp) moved = true;
                     return true;
@@ -420,6 +429,10 @@ final class FrameHudView extends View {
             }
 
             case MotionEvent.ACTION_UP: {
+                if (!armed) {
+                    armed = false;
+                    return true;
+                }
                 if (dragging) {
                     dragging = false;
                     if (listener != null) listener.onDragEnd(0);
@@ -448,12 +461,23 @@ final class FrameHudView extends View {
         }
     }
 
+    /** 手指是不是落在胶囊上：展开按灯带 30dp + 4dp 余量，收起按那条线 18dp */
+    private boolean nearCapsule(float rawX, float rawY) {
+        float touchS = path.nearestS(rawX, rawY);
+        // 先看沿路径方向有没有超出胶囊两端，再看离灯带多远——不是整条边框都算
+        float half = expanded ? capsuleSpan() / 2f : 30 * dp;
+        if (Math.abs(path.delta(s, touchS)) > half + 10 * dp) return false;
+        path.eval(touchS, ev);
+        float dx = ev[0] - rawX, dy = ev[1] - rawY;
+        return Math.hypot(dx, dy) <= (expanded ? 34 : 18) * dp;
+    }
+
     /** 触摸点对应哪个图标；不在图标上返回 -1 */
     private int iconAt(float rawX, float rawY) {
         float touchS = path.nearestS(rawX, rawY);
         path.eval(touchS, ev);
         float dx = ev[0] - rawX, dy = ev[1] - rawY;
-        if (Math.hypot(dx, dy) > 42 * dp) return -1;      // 离边框太远算空白
+        if (Math.hypot(dx, dy) > 34 * dp) return -1;      // 离胶囊太远算空白
         int n = agents.size();
         int best = -1;
         float bestD = Float.MAX_VALUE;
