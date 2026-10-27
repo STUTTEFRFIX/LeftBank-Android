@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">左岸</string>
+    <string name="channel_name">左岸面板</string>
+    <string name="channel_desc">在屏幕左边缘显示 agent 的状态条</string>
+</resources>
